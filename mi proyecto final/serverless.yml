@@ -1,0 +1,106 @@
+service: proyecto-final
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs14.x
+  region: us-east-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - ses:SendEmail
+      Resource:
+        - arn:aws:ses:us-east-1:925866048760:identity/alejo17hernandez795@gmail.com
+        - arn:aws:ses:us-east-1:925866048760:identity/hernandezjhon795@gmail.com
+
+resources:
+  Resources:
+    MyDatabase: 
+      Type: AWS::RDS::DBInstance
+      Properties:
+        AllocatedStorage: 20
+        DBInstanceClass: db.t2.micro
+        Engine: MySQL
+        EngineVersion: 5.7
+        MasterUsername: admin
+        MasterUserPassword: 12345678
+        MultiAZ: false
+        StorageType: gp2
+        PubliclyAccessible: true
+
+    MyOrderQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: order-queue
+        DelaySeconds: 15
+        MessageRetentionPeriod: 1209600
+
+    MyOrderBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: order-backup-bucket-proyecto
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteAfterTwoDays
+              Status: Enabled
+              ExpirationInDays: 2
+
+    DestinatarioEmailVerification:
+      Type: AWS::SES::EmailIdentity
+      Properties:
+        EmailIdentity: alejo17hernandez795@gmail.com
+
+    OrigenEmailVerification:
+      Type: AWS::SES::EmailIdentity
+      Properties:
+        EmailIdentity: hernandezjhon795@gmail.com
+
+    LambdaExecutionRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        RoleName: proyecto-final-dev-createOrder
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Service: "lambda.amazonaws.com"
+              Action: "sts:AssumeRole"
+        Policies:
+          - PolicyName: "SESAccessPolicy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "ses:SendEmail"
+                  Resource:
+                    - "arn:aws:ses:us-east-1:925866048760:identity/alejo17hernandez795@gmail.com"
+                    - "arn:aws:ses:us-east-1:925866048760:identity/hernandezjhon795@gmail.com"
+
+  Outputs:
+    DatabaseEndpoint:
+      Value: !GetAtt MyDatabase.Endpoint.Address
+    DatabaseName:
+      Value: my-database
+
+functions:
+  createOrder:
+    handler: src/createOrder.handler
+    events:
+      - http:
+          path: orders
+          method: post
+
+  getOrder:
+    handler: src/getOrder.handler
+    events:
+      - http:
+          path: orders/{orderId}
+          method: get
+
+  processOrders:
+    handler: src/processOrders.handler
+    events:
+      - schedule: cron(0/15 * * * ? *)
